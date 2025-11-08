@@ -36,6 +36,38 @@
   const yR = rVals.map(v => v == null ? null : Number(v));          // mm/h. [web:16]
 
   const now = Date.now();                                            // current timestamp for marker. [web:83]
+
+  function dayLinesPlugin(xVals, color="#555") {
+  // find timestamps that correspond to midnight (start of each day)
+  const dayTimestamps = [];
+  for (let i = 1; i < xVals.length; i++) {
+    const d = new Date(xVals[i]);
+    if (d.getHours() === 0) dayTimestamps.push(xVals[i]);
+  }
+
+  return {
+    hooks: {
+      draw: (u) => {
+        const { top, height, left, width } = u.bbox;
+        const ctx = u.ctx;
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 0.8;
+        ctx.setLineDash([2, 2]); // optional, dotted look
+        for (const ts of dayTimestamps) {
+          const x = u.valToPos(ts, "x", true);
+          if (x < left || x > left + width) continue;
+          ctx.beginPath();
+          ctx.moveTo(x, top);
+          ctx.lineTo(x, top + height);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+    }
+  };
+}
+  
   function nowLine(nowTs){
     return { hooks:{ draw:(u)=>{
       const xPos = u.valToPos(nowTs,"x",true);
@@ -137,7 +169,8 @@
     ],
     plugins: [
       nowLine(now),                                                  // vertical "now" line. [web:83]
-      refLinesPlugin([1000, 1026])                                   // horizontal 1000/1026 hPa lines. [web:83]
+      refLinesPlugin([1000, 1026]),                                  // horizontal 1000/1026 hPa lines. [web:83]
+      dayLinesPlugin(x)
     ]
   }, [x, yP, yR], container);
 
