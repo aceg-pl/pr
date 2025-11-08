@@ -87,6 +87,7 @@
       p: { auto: true },                                             // pressure (left). [web:83]
       r: { range: [rMin, rMax] }                                     // precipitation (right). [web:83]
     },
+    legend: { show: false },
     axes: [
       // X axis: compact values, sparse to fit tiny width.
       {
@@ -106,7 +107,6 @@
         }),
         ticks: { show: true },
         grid: { show: false },
-        legend: { show: false },
         font: "10px system-ui",
         gap: 4
       },
