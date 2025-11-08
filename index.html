@@ -11,7 +11,7 @@
 (async () => {
   const lat = 53.2220301, lon = 18.0544024; // Żołędowo area
 
-  // Open‑Meteo: hourly mean sea-level pressure, past 7d + next 7d, local timezone
+  // Open‑Meteo: hourly mean sea-level pressure, past 7d + next 7d, local timezone [web:16]
   const params = new URLSearchParams({
     latitude: String(lat),
     longitude: String(lon),
@@ -20,7 +20,7 @@
     forecast_days: "7",
     timezone: "auto"
   });
-  const url = "https://api.open-meteo.com/v1/forecast?" + params.toString(); // No API key required. [web:16]
+  const url = "https://api.open-meteo.com/v1/forecast?" + params.toString(); // No key needed. [web:16]
 
   const res = await fetch(url);
   if (!res.ok) { document.getElementById("c").textContent = "Fetch error"; return; }
@@ -47,46 +47,37 @@
   const container = document.getElementById("c");
   const w = container.clientWidth || 180, h = container.clientHeight || 72;
 
+  // Build chart with rotated/sparse x labels, extra spacing & padding to avoid clipping. [web:83][web:79][web:85][web:88]
   const u = new uPlot({
     width: w,
     height: h,
     tzDate: ts => new Date(ts),                      // timezone=auto gives local times. [web:16]
     scales: { x:{ time:true }, y:{ auto:true } },    // time x-axis and auto y-scale. [web:83]
+    padding: [6, 4, 6, 6],                           // top,right,bottom,left padding to keep edge labels visible. [web:83]
     axes: [
-  // X axis: compact tick values, extra space so ends don't clip
-  {
-    show: true,
-    size: 22,
-    space: 28, // min px between tick labels to avoid clipping [web:85]
-    values: (u, vals) => vals.map(v => {
-      const d = new Date(v);
-      return `${d.getDate()} ${String(d.getHours()).padStart(2,"0")}h`; // e.g., "6 14h"
-    }),
-    ticks: { show: true },
-    grid: { show: false }
-  },
-  // Y axis
-  {
-    show: true,
-    size: 32, // a bit more room to avoid left-side cutoffs
-    values: (u, vals) => vals.map(v => v.toFixed(0)),
-    grid: { show: true, stroke: "rgba(0,0,0,0.06)" }
-  }
-    ],
-    series: [
-      {},
-      { stroke:"#2b6cb0", width:1, fill:"rgba(43,108,176,0.10)", points:{ show:false } } // compact style. [web:83]
-    ],
-    plugins: [nowLine(now)]
-  }, [x,y], container);
-
-  // Keep tiny but responsive within its small box
-  const ro = new ResizeObserver(entries => {
-    for (const e of entries) {
-      const cw = e.contentRect.width, ch = e.contentRect.height;
-      u.setSize({ width: Math.max(120, cw), height: Math.max(50, ch) });
-    }
-  });
-  ro.observe(container);
-})();
-</script>
+      {
+        show: true,
+        size: 26,                                    // a bit taller to fit rotated labels. [web:79]
+        space: 32,                                   // min px between labels to reduce crowding. [web:85]
+        splits: (u, vals) => {                       // downsample ticks to ~6 visible across tiny width. [web:79]
+          const target = 6;
+          const step = Math.ceil(vals.length / target) || 1;
+          const out = [];
+          for (let i = 0; i < vals.length; i += step) out.push(vals[i]);
+          return out;
+        },
+        values: (u, vals) => vals.map(v => {
+          const d = new Date(v);
+          return `${d.getDate()}\n${String(d.getHours()).padStart(2,"0")}h`; // "DD\nHHh" two-line compact. [web:89][web:83]
+        }),
+        ticks: { show: true },
+        grid: { show: false },
+        font: "10px system-ui",
+        gap: 6,
+        rotate: -45                                  // rotate ~45° to gain horizontal room. [web:88][web:96]
+      },
+      {
+        show: true,
+        size: 34,                                    // more room to avoid left-side clipping of 4-digit hPa. [web:79]
+        values: (u, vals) => vals.map(v => v.toFixed(0)),
+        grid: { show: true, stroke: "rgba(0,0,0,0.06)" }
