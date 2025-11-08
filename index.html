@@ -3,14 +3,15 @@
 <link rel="stylesheet" href="https://unpkg.com/uplot@1.6.30/dist/uPlot.min.css">
 <style>
   html,body { margin:0; padding:0; background:#fff; }
-  #c { width: 180px; height: 72px; } /* ~20% of original 900x360 */
+  #c { width: 180px; height: 72px; } /* ~20% of 900x360 */
 </style>
 <div id="c"></div>
 <script src="https://unpkg.com/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
 <script>
 (async () => {
-  const lat = 53.2220301, lon = 18.0544024;
+  const lat = 53.2220301, lon = 18.0544024; // Żołędowo area
 
+  // Open‑Meteo: hourly mean sea-level pressure, past 7d + next 7d, local timezone
   const params = new URLSearchParams({
     latitude: String(lat),
     longitude: String(lon),
@@ -19,7 +20,7 @@
     forecast_days: "7",
     timezone: "auto"
   });
-  const url = "https://api.open-meteo.com/v1/forecast?" + params.toString();
+  const url = "https://api.open-meteo.com/v1/forecast?" + params.toString(); // No API key required. [web:16]
 
   const res = await fetch(url);
   if (!res.ok) { document.getElementById("c").textContent = "Fetch error"; return; }
@@ -29,9 +30,10 @@
   const vals  = j?.hourly?.pressure_msl || [];
   if (!times.length || !vals.length) { document.getElementById("c").textContent = "No data"; return; }
 
-  const x = times.map(t => new Date(t).getTime());
+  const x = times.map(t => new Date(t).getTime());     // epoch ms for uPlot time axis. [web:83]
   const y = vals.map(v => v == null ? null : Number(v));
 
+  // Optional “now” marker
   const now = Date.now();
   function nowLine(nowTs){
     return { hooks:{ draw:(u)=>{
@@ -46,16 +48,34 @@
   const w = container.clientWidth || 180, h = container.clientHeight || 72;
 
   const u = new uPlot({
-    width: w, height: h,
-    tzDate: ts => new Date(ts),
-    scales: { x:{ time:true }, y:{ auto:true } },
+    width: w,
+    height: h,
+    tzDate: ts => new Date(ts),                      // timezone=auto gives local times. [web:16]
+    scales: { x:{ time:true }, y:{ auto:true } },    // time x-axis and auto y-scale. [web:83]
     axes: [
-      { stroke:"#333", grid:{ show:true, stroke:"rgba(0,0,0,0.06)" }, size: 20, values:()=>[] }, // hide x labels for tiny chart
-      { stroke:"#333", grid:{ show:true, stroke:"rgba(0,0,0,0.06)" }, size: 28, values:(u,vals)=>vals.map(v=>v.toFixed(0)) }
+      // X axis: compact tick values (days/hrs), no title
+      {
+        show: true,
+        size: 22,
+        values: (u, vals) => vals.map(v => {
+          const d = new Date(v);
+          // Compact label for tiny chart, e.g. "6 14h"
+          return `${d.getDate()} ${String(d.getHours()).padStart(2,"0")}h`;
+        }),
+        ticks: { show: true },
+        grid: { show: false }
+      },
+      // Y axis: hPa numeric ticks, no title
+      {
+        show: true,
+        size: 30,
+        values: (u, vals) => vals.map(v => v.toFixed(0)),
+        grid: { show: true, stroke: "rgba(0,0,0,0.06)" }
+      }
     ],
     series: [
       {},
-      { stroke:"#2b6cb0", width:1, fill:"rgba(43,108,176,0.10)", points:{ show:false } }
+      { stroke:"#2b6cb0", width:1, fill:"rgba(43,108,176,0.10)", points:{ show:false } } // compact style. [web:83]
     ],
     plugins: [nowLine(now)]
   }, [x,y], container);
