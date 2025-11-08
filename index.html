@@ -9,9 +9,9 @@
 <script src="https://unpkg.com/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
 <script>
 (async () => {
-  const lat = 53.2220301, lon = 18.0544024;
+  const lat = 53.2220301, lon = 18.0544024; // Żołędowo [web:16]
 
-  // Request hourly pressure (hPa) and precipitation (mm) with past 7d + next 7d, local timezone. [web:16]
+  // Request hourly pressure & precipitation for last 7d + next 7d, local timezone. [web:16]
   const params = new URLSearchParams({
     latitude: String(lat),
     longitude: String(lon),
@@ -20,7 +20,7 @@
     forecast_days: "7",
     timezone: "auto"
   });
-  const url = "https://api.open-meteo.com/v1/forecast?" + params.toString(); // No key required. [web:16]
+  const url = "https://api.open-meteo.com/v1/forecast?" + params.toString(); // No API key required. [web:16]
 
   const res = await fetch(url);
   if (!res.ok) { document.getElementById("c").textContent = "Fetch error"; return; }
@@ -28,15 +28,14 @@
 
   const times = j?.hourly?.time || [];
   const pVals = j?.hourly?.pressure_msl || [];
-  const rVals = j?.hourly?.precipitation || []; // mm/h per hour [web:23][web:29]
+  const rVals = j?.hourly?.precipitation || [];
   if (!times.length || !pVals.length || !rVals.length) { document.getElementById("c").textContent = "No data"; return; }
 
-  const x = times.map(t => new Date(t).getTime()); // epoch ms for time axis. [web:83]
-  const yP = pVals.map(v => v == null ? null : Number(v));      // hPa
-  const yR = rVals.map(v => v == null ? null : Number(v));      // mm/h
+  const x  = times.map(t => new Date(t).getTime());                 // epoch ms for time axis. [web:83]
+  const yP = pVals.map(v => v == null ? null : Number(v));          // hPa. [web:16]
+  const yR = rVals.map(v => v == null ? null : Number(v));          // mm/h. [web:16]
 
-  // Optional “now” marker
-  const now = Date.now();
+  const now = Date.now();                                            // current timestamp for marker. [web:83]
   function nowLine(nowTs){
     return { hooks:{ draw:(u)=>{
       const xPos = u.valToPos(nowTs,"x",true);
@@ -46,32 +45,56 @@
     }}};
   }
 
+  // Red horizontal reference lines at 1000 and 1026 hPa on pressure scale. [web:83]
+  function refLinesPlugin(levels, color = "#d33") {
+    return {
+      hooks: {
+        draw: (u) => {
+          const { top, height, left, width } = u.bbox;
+          const ctx = u.ctx;
+          ctx.save();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 3]);
+          for (const v of levels) {
+            const y = u.valToPos(v, "p", true); // map to pressure scale. [web:83]
+            if (y < top || y > top + height) continue;
+            ctx.beginPath();
+            ctx.moveTo(left, y);
+            ctx.lineTo(left + width, y);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+      }
+    };
+  }
+
   const container = document.getElementById("c");
   const w = container.clientWidth || 180, h = container.clientHeight || 72;
 
-  // Compute a reasonable right-axis range for precip (often sparse/zeros)
+  // Right axis (precip) range: 0..max(>=1) mm/h to ensure visibility. [web:83]
   const rMin = 0;
-  const rMax = Math.max(1, ...(yR.filter(v => v != null))); // at least 1 mm/h to show scale
-  // Pressure range auto; can clamp if desired.
+  const rMax = Math.max(1, ...(yR.filter(v => v != null)));
 
   const u = new uPlot({
     width: w,
     height: h,
-    tzDate: ts => new Date(ts),                       // local time. [web:16]
-    padding: [6, 6, 6, 6],
+    tzDate: ts => new Date(ts),                                      // local time via timezone=auto. [web:16]
+    padding: [6, 6, 6, 6],                                           // keep edge ticks within bounds. [web:83]
     scales: {
-      x: { time: true },                               // time axis. [web:83]
-      p: { auto: true },                               // pressure scale (left)
-      r: { range: [rMin, rMax] }                       // precip scale (right)
+      x: { time: true },                                             // time x-axis. [web:83]
+      p: { auto: true },                                             // pressure (left). [web:83]
+      r: { range: [rMin, rMax] }                                     // precipitation (right). [web:83]
     },
     axes: [
-      // X axis: compact tick values, sparse to fit tiny width
+      // X axis: compact values, sparse to fit tiny width.
       {
         show: true,
         size: 22,
-        space: 36,                                     // min px between labels. [web:85]
+        space: 36,                                                   // min px between labels. [web:85]
         splits: (u, vals) => {
-          const target = 4;                            // ~4 ticks across 180px. [web:79]
+          const target = 4;                                          // ~4 ticks across 180px. [web:79]
           const step = Math.ceil(vals.length / target) || 1;
           const out = [];
           for (let i = 0; i < vals.length; i += step) out.push(vals[i]);
@@ -79,39 +102,45 @@
         },
         values: (u, vals) => vals.map(v => {
           const d = new Date(v);
-          return `${d.getDate()}-${String(d.getHours()).padStart(2,"0")}`; // "DD-HH" compact. [web:89][web:83]
+          return `${d.getDate()}-${String(d.getHours()).padStart(2,"0")}`; // "DD-HH". [web:89][web:83]
         }),
         ticks: { show: true },
         grid: { show: false },
         font: "10px system-ui",
         gap: 4
       },
-      // Left Y axis: pressure (hPa)
+      // Left Y axis (pressure): hide numeric tick labels.
       {
         show: true,
         scale: "p",
-        size: 36,
-        values: (u, vals) => vals.map(v => v.toFixed(0)),
-        grid: { show: true, stroke: "rgba(0,0,0,0.06)" }
+        size: 6,                                                     // minimal gutter since values hidden. [web:83]
+        values: () => [],                                            // hide labels. [web:83]
+        ticks: { show: false },
+        grid: { show: true, stroke: "rgba(0,0,0,0.06)" }             // keep grid for context. [web:83]
       },
-      // Right Y axis: precipitation (mm/h)
+      // Right Y axis (precip): hide numeric tick labels.
       {
         show: true,
         scale: "r",
-        side: 1,                                       // right side axis
-        size: 32,
-        values: (u, vals) => vals.map(v => v.toFixed(1)),
+        side: 1,
+        size: 6,                                                     // minimal gutter. [web:83]
+        values: () => [],                                            // hide labels. [web:83]
+        ticks: { show: false },
         grid: { show: false }
       }
     ],
     series: [
-      {}, // x
-      { label:"Pressure", scale:"p", stroke:"#2b6cb0", width:1, fill:"rgba(43,108,176,0.10)", points:{ show:false } }, // [web:83]
-      { label:"Precip",  scale:"r", stroke:"#1f9d55", width:1, points:{ show:false } } // mm/h on right axis
+      {},                                                            // x
+      { label:"Pressure", scale:"p", stroke:"#2b6cb0", width:1, fill:"rgba(43,108,176,0.10)", points:{ show:false } }, // left axis. [web:83]
+      { label:"Precip",  scale:"r", stroke:"#1f9d55", width:1, points:{ show:false } }                                   // right axis. [web:83]
     ],
-    plugins: [nowLine(now)]
+    plugins: [
+      nowLine(now),                                                  // vertical "now" line. [web:83]
+      refLinesPlugin([1000, 1026])                                   // horizontal 1000/1026 hPa lines. [web:83]
+    ]
   }, [x, yP, yR], container);
 
+  // Tiny responsive behavior within the fixed box. [web:83]
   const ro = new ResizeObserver(entries => {
     for (const e of entries) {
       const cw = e.contentRect.width, ch = e.contentRect.height;
