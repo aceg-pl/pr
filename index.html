@@ -1,187 +1,25 @@
 <!doctype html>
 <meta charset="utf-8">
 <link rel="stylesheet" href="https://unpkg.com/uplot@1.6.30/dist/uPlot.min.css">
-<style>
-  html,body { margin:0; padding:0; background:#fff; }
-  #c { width: 180px; height: 85px; display:block; }
-</style>
+<style>html,body{margin:0;padding:0;background:#fff}#c{width:180px;height:85px;display:block}</style>
 <div id="c"></div>
 <script src="https://unpkg.com/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
 <script>
-(async () => {
-  const lat = 53.2220301, lon = 18.0544024; // Żołędowo [web:16]
+(async()=>{
+const lat=53.2220301,lon=18.0544024;
+const params=new URLSearchParams({latitude:String(lat),longitude:String(lon),hourly:"pressure_msl,precipitation",past_days:"7",forecast_days:"7",timezone:"auto"});
+const url="https://api.open-meteo.com/v1/forecast?"+params.toString();
+const res=await fetch(url);if(!res.ok){document.getElementById("c").textContent="Fetch error";return;}
+const j=await res.json(),times=j?.hourly?.time||[],pVals=j?.hourly?.pressure_msl||[],rVals=j?.hourly?.precipitation||[];
+if(!times.length||!pVals.length||!rVals.length){document.getElementById("c").textContent="No data";return;}
+const x=times.map(t=>new Date(t).getTime()),yP=pVals.map(v=>v==null?null:+v),yR=rVals.map(v=>v==null?null:+v),now=Date.now();
 
-  // Request hourly pressure & precipitation for last 7d + next 7d, local timezone. [web:16]
-  const params = new URLSearchParams({
-    latitude: String(lat),
-    longitude: String(lon),
-    hourly: "pressure_msl,precipitation",
-    past_days: "7",
-    forecast_days: "7",
-    timezone: "auto"
-  });
-  const url = "https://api.open-meteo.com/v1/forecast?" + params.toString(); // No API key required. [web:16]
+function dayLinesPlugin(xVals,color="#555"){const dayTimestamps=[];for(let i=1;i<xVals.length;i++){const d=new Date(xVals[i]);if(d.getHours()===0)dayTimestamps.push(xVals[i]);}return{hooks:{draw:u=>{const{top,height,left,width}=u.bbox,ctx=u.ctx;ctx.save();ctx.strokeStyle=color;ctx.lineWidth=.8;ctx.setLineDash([2,2]);for(const ts of dayTimestamps){const x=u.valToPos(ts,"x",!0);if(x<left||x>left+width)continue;ctx.beginPath();ctx.moveTo(x,top);ctx.lineTo(x,top+height);ctx.stroke();}ctx.restore();}}};}
+function nowLine(nowTs){return{hooks:{draw:u=>{const xPos=u.valToPos(nowTs,"x",!0);if(xPos<u.bbox.left||xPos>u.bbox.left+u.bbox.width)return;const ctx=u.ctx;ctx.save();ctx.strokeStyle="#e74c3c";ctx.lineWidth=1;ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(xPos,u.bbox.top);ctx.lineTo(xPos,u.bbox.top+u.bbox.height);ctx.stroke();ctx.restore();}}};}
+function refLinesPlugin(levels,color="#d33"){return{hooks:{draw:u=>{const{top,height,left,width}=u.bbox,ctx=u.ctx;ctx.save();ctx.strokeStyle=color;ctx.lineWidth=1;ctx.setLineDash([4,3]);for(const v of levels){const y=u.valToPos(v,"p",!0);if(y<top||y>top+height)continue;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(left+width,y);ctx.stroke();}ctx.restore();}}};}
 
-  const res = await fetch(url);
-  if (!res.ok) { document.getElementById("c").textContent = "Fetch error"; return; }
-  const j = await res.json();
-
-  const times = j?.hourly?.time || [];
-  const pVals = j?.hourly?.pressure_msl || [];
-  const rVals = j?.hourly?.precipitation || [];
-  if (!times.length || !pVals.length || !rVals.length) { document.getElementById("c").textContent = "No data"; return; }
-
-  const x  = times.map(t => new Date(t).getTime());                 // epoch ms for time axis. [web:83]
-  const yP = pVals.map(v => v == null ? null : Number(v));          // hPa. [web:16]
-  const yR = rVals.map(v => v == null ? null : Number(v));          // mm/h. [web:16]
-
-  const now = Date.now();                                            // current timestamp for marker. [web:83]
-
-  function dayLinesPlugin(xVals, color="#555") {
-  // find timestamps that correspond to midnight (start of each day)
-  const dayTimestamps = [];
-  for (let i = 1; i < xVals.length; i++) {
-    const d = new Date(xVals[i]);
-    if (d.getHours() === 0) dayTimestamps.push(xVals[i]);
-  }
-
-  return {
-    hooks: {
-      draw: (u) => {
-        const { top, height, left, width } = u.bbox;
-        const ctx = u.ctx;
-        ctx.save();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 0.8;
-        ctx.setLineDash([2, 2]); // optional, dotted look
-        for (const ts of dayTimestamps) {
-          const x = u.valToPos(ts, "x", true);
-          if (x < left || x > left + width) continue;
-          ctx.beginPath();
-          ctx.moveTo(x, top);
-          ctx.lineTo(x, top + height);
-          ctx.stroke();
-        }
-        ctx.restore();
-      }
-    }
-  };
-}
-  
-  function nowLine(nowTs){
-    return { hooks:{ draw:(u)=>{
-      const xPos = u.valToPos(nowTs,"x",true);
-      if (xPos < u.bbox.left || xPos > u.bbox.left + u.bbox.width) return;
-      const ctx=u.ctx; ctx.save(); ctx.strokeStyle="#e74c3c"; ctx.lineWidth=1; ctx.setLineDash([3,3]);
-      ctx.beginPath(); ctx.moveTo(xPos,u.bbox.top); ctx.lineTo(xPos,u.bbox.top+u.bbox.height); ctx.stroke(); ctx.restore();
-    }}};
-  }
-
-  // Red horizontal reference lines at 1000 and 1026 hPa on pressure scale. [web:83]
-  function refLinesPlugin(levels, color = "#d33") {
-    return {
-      hooks: {
-        draw: (u) => {
-          const { top, height, left, width } = u.bbox;
-          const ctx = u.ctx;
-          ctx.save();
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 1;
-          ctx.setLineDash([4, 3]);
-          for (const v of levels) {
-            const y = u.valToPos(v, "p", true); // map to pressure scale. [web:83]
-            if (y < top || y > top + height) continue;
-            ctx.beginPath();
-            ctx.moveTo(left, y);
-            ctx.lineTo(left + width, y);
-            ctx.stroke();
-          }
-          ctx.restore();
-        }
-      }
-    };
-  }
-
-  const container = document.getElementById("c");
-  const w = container.clientWidth || 180, h = container.clientHeight || 72;
-
-  // Right axis (precip) range: 0..max(>=1) mm/h to ensure visibility. [web:83]
-  const rMin = 0;
-  const rMax = Math.max(1, ...(yR.filter(v => v != null)));
-
-  const u = new uPlot({
-    width: w,
-    height: h,
-    tzDate: ts => new Date(ts),                                      // local time via timezone=auto. [web:16]
-    padding: [6, 6, 6, 6],                                           // keep edge ticks within bounds. [web:83]
-    scales: {
-      x: { time: true },                                             // time x-axis. [web:83]
-      p: { auto: true },                                             // pressure (left). [web:83]
-      r: { range: [rMin, rMax] }                                     // precipitation (right). [web:83]
-    },
-    legend: { show: false },
-    axes: [
-      // X axis: compact values, sparse to fit tiny width.
-      {
-        show: true,
-        size: 22,
-        space: 36,                                                   // min px between labels. [web:85]
-        splits: (u, vals) => {
-          const target = 4;                                          // ~4 ticks across 180px. [web:79]
-          const step = Math.ceil(vals.length / target) || 1;
-          const out = [];
-          for (let i = 0; i < vals.length; i += step) out.push(vals[i]);
-          return out;
-        },
-        values: (u, vals) => vals.map(v => {
-          const d = new Date(v);
-          return `${d.getDate()}-${String(d.getHours()).padStart(2,"0")}`; // "DD-HH". [web:89][web:83]
-        }),
-        ticks: { show: true },
-        grid: { show: false },
-        font: "10px system-ui",
-        gap: 4
-      },
-      // Left Y axis (pressure): hide numeric tick labels.
-      {
-        show: true,
-        scale: "p",
-        size: 6,                                                     // minimal gutter since values hidden. [web:83]
-        values: () => [],                                            // hide labels. [web:83]
-        ticks: { show: false },
-        grid: { show: true, stroke: "rgba(0,0,0,0.06)" }             // keep grid for context. [web:83]
-      },
-      // Right Y axis (precip): hide numeric tick labels.
-      {
-        show: true,
-        scale: "r",
-        side: 1,
-        size: 6,                                                     // minimal gutter. [web:83]
-        values: () => [],                                            // hide labels. [web:83]
-        ticks: { show: false },
-        grid: { show: false }
-      }
-    ],
-    series: [
-      {},                                                            // x
-      { label:"Pressure",  scale:"p", stroke:"#ff8800", width:1, fill:"rgba(43,108,176,0.10)", points:{ show:false } }, // left axis. [web:83]
-      { label:"Precip",  scale:"r", stroke:"#2b6cb0", width:1, points:{ show:false } }                                   // right axis. [web:83]
-    ],
-    plugins: [
-      nowLine(now),                                                  // vertical "now" line. [web:83]
-      refLinesPlugin([1000, 1026]),                                  // horizontal 1000/1026 hPa lines. [web:83]
-      refLinesPlugin([1013], "#008000"),
-      dayLinesPlugin(x)
-    ]
-  }, [x, yP, yR], container);
-
-  // Tiny responsive behavior within the fixed box. [web:83]
-  const ro = new ResizeObserver(entries => {
-    for (const e of entries) {
-      const cw = e.contentRect.width, ch = e.contentRect.height;
-      u.setSize({ width: Math.max(140, cw), height: Math.max(60, ch) });
-    }
-  });
-  ro.observe(container);
+const container=document.getElementById("c"),w=container.clientWidth||180,h=container.clientHeight||72,rMin=0,rMax=Math.max(1,...yR.filter(v=>v!=null));
+const u=new uPlot({width:w,height:h,tzDate:ts=>new Date(ts),padding:[6,6,6,6],scales:{x:{time:!0},p:{auto:!0},r:{range:[rMin,rMax]}},legend:{show:!1},axes:[{show:!0,size:22,space:36,splits:(u,vals)=>{const target=4,step=Math.ceil(vals.length/target)||1,out=[];for(let i=0;i<vals.length;i+=step)out.push(vals[i]);return out;},values:(u,vals)=>vals.map(v=>{const d=new Date(v);return`${d.getDate()}-${String(d.getHours()).padStart(2,"0")}`;}),ticks:{show:!0},grid:{show:!1},font:"10px system-ui",gap:4},{show:!0,scale:"p",size:6,values:()=>[],ticks:{show:!1},grid:{show:!0,stroke:"rgba(0,0,0,0.06)"}},{show:!0,scale:"r",side:1,size:6,values:()=>[],ticks:{show:!1},grid:{show:!1}}],series:[{}, {label:"Pressure",scale:"p",stroke:"#ff8800",width:1,fill:"rgba(43,108,176,0.10)",points:{show:!1}}, {label:"Precip",scale:"r",stroke:"#2b6cb0",width:1,points:{show:!1}}],plugins:[nowLine(now),refLinesPlugin([1000,1026]),refLinesPlugin([1013],"#008000"),dayLinesPlugin(x)]},[x,yP,yR],container);
+const ro=new ResizeObserver(entries=>{for(const e of entries){const cw=e.contentRect.width,ch=e.contentRect.height;u.setSize({width:Math.max(140,cw),height:Math.max(60,ch)});}});ro.observe(container);
 })();
 </script>
