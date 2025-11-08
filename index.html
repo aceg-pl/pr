@@ -170,6 +170,7 @@
     plugins: [
       nowLine(now),                                                  // vertical "now" line. [web:83]
       refLinesPlugin([1000, 1026]),                                  // horizontal 1000/1026 hPa lines. [web:83]
+      refLinesPlugin([1013], "#008000"),
       dayLinesPlugin(x)
     ]
   }, [x, yP, yR], container);
