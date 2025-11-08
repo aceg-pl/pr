@@ -1,137 +1,72 @@
 <!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>Barometric Pressure – Last 7d + Next 7d</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="preconnect" href="https://api.open-meteo.com">
-  <link rel="stylesheet" href="https://unpkg.com/uplot@1.6.30/dist/uPlot.min.css">
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; color: #111; }
-    h1 { font-size: 18px; margin: 0 0 8px; }
-    #chart { width: 100%; height: 360px; }
-    .meta { margin: 8px 0 16px; color: #444; font-size: 14px; }
-  </style>
-</head>
-<body>
-  <h1>Barometric Pressure – 14‑day Timeline (hPa)</h1>
-  <div class="meta">Location: 53.2220301, 18.0544024 • Source: Open‑Meteo hourly pressure_msl • Past 7d + Next 7d [UTC/local auto]</div>
-  <div id="chart"></div>
-  <script src="https://unpkg.com/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
-  <script>
-  (async () => {
-    // Coordinates (Żołędowo area). Change if needed.
-    const latitude = 53.2220301;
-    const longitude = 18.0544024;
+<meta charset="utf-8">
+<link rel="stylesheet" href="https://unpkg.com/uplot@1.6.30/dist/uPlot.min.css">
+<style>
+  html,body { margin:0; padding:0; background:#fff; }
+  #c { width: 180px; height: 72px; } /* ~20% of original 900x360 */
+</style>
+<div id="c"></div>
+<script src="https://unpkg.com/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
+<script>
+(async () => {
+  const lat = 53.2220301, lon = 18.0544024;
 
-    // Build Open‑Meteo request:
-    // - hourly pressure_msl (mean sea‑level pressure, hPa)
-    // - past_days=7 for last week
-    // - forecast_days=7 for next week
-    // - timezone=auto to align labels to local time
-    // Notes: Open‑Meteo supports this in one response. [web:16][web:21]
-    const params = new URLSearchParams({
-      latitude: latitude.toString(),
-      longitude: longitude.toString(),
-      hourly: "pressure_msl",
-      past_days: "7",
-      forecast_days: "7",
-      timezone: "auto"
-    });
-    const url = "https://api.open-meteo.com/v1/forecast?" + params.toString();
+  const params = new URLSearchParams({
+    latitude: String(lat),
+    longitude: String(lon),
+    hourly: "pressure_msl",
+    past_days: "7",
+    forecast_days: "7",
+    timezone: "auto"
+  });
+  const url = "https://api.open-meteo.com/v1/forecast?" + params.toString();
 
-    const res = await fetch(url);
-    if (!res.ok) throw new Error("Failed to fetch Open‑Meteo data");
-    const data = await res.json();
+  const res = await fetch(url);
+  if (!res.ok) { document.getElementById("c").textContent = "Fetch error"; return; }
+  const j = await res.json();
 
-    // Extract arrays
-    const timesISO = data?.hourly?.time || [];
-    const pressure = data?.hourly?.pressure_msl || [];
+  const times = j?.hourly?.time || [];
+  const vals  = j?.hourly?.pressure_msl || [];
+  if (!times.length || !vals.length) { document.getElementById("c").textContent = "No data"; return; }
 
-    if (!timesISO.length || !pressure.length) {
-      document.getElementById("chart").textContent = "No pressure data returned.";
-      return;
+  const x = times.map(t => new Date(t).getTime());
+  const y = vals.map(v => v == null ? null : Number(v));
+
+  const now = Date.now();
+  function nowLine(nowTs){
+    return { hooks:{ draw:(u)=>{
+      const xPos = u.valToPos(nowTs,"x",true);
+      if (xPos < u.bbox.left || xPos > u.bbox.left + u.bbox.width) return;
+      const ctx=u.ctx; ctx.save(); ctx.strokeStyle="#e74c3c"; ctx.lineWidth=1; ctx.setLineDash([3,3]);
+      ctx.beginPath(); ctx.moveTo(xPos,u.bbox.top); ctx.lineTo(xPos,u.bbox.top+u.bbox.height); ctx.stroke(); ctx.restore();
+    }}};
+  }
+
+  const container = document.getElementById("c");
+  const w = container.clientWidth || 180, h = container.clientHeight || 72;
+
+  const u = new uPlot({
+    width: w, height: h,
+    tzDate: ts => new Date(ts),
+    scales: { x:{ time:true }, y:{ auto:true } },
+    axes: [
+      { stroke:"#333", grid:{ show:true, stroke:"rgba(0,0,0,0.06)" }, size: 20, values:()=>[] }, // hide x labels for tiny chart
+      { stroke:"#333", grid:{ show:true, stroke:"rgba(0,0,0,0.06)" }, size: 28, values:(u,vals)=>vals.map(v=>v.toFixed(0)) }
+    ],
+    series: [
+      {},
+      { stroke:"#2b6cb0", width:1, fill:"rgba(43,108,176,0.10)", points:{ show:false } }
+    ],
+    plugins: [nowLine(now)]
+  }, [x,y], container);
+
+  // Keep tiny but responsive within its small box
+  const ro = new ResizeObserver(entries => {
+    for (const e of entries) {
+      const cw = e.contentRect.width, ch = e.contentRect.height;
+      u.setSize({ width: Math.max(120, cw), height: Math.max(50, ch) });
     }
-
-    // Convert ISO strings to epoch milliseconds for uPlot’s time axis
-    const x = timesISO.map(t => new Date(t).getTime());
-    const y = pressure.map(v => (v == null ? null : Number(v)));
-
-    // Create a “now” vertical line plugin
-    function nowLinePlugin(nowTs) {
-      return {
-        hooks: {
-          draw: (u) => {
-            const ctx = u.ctx;
-            const xPos = u.valToPos(nowTs, "x", true);
-            if (xPos < u.bbox.left || xPos > u.bbox.left + u.bbox.width) return;
-            ctx.save();
-            ctx.strokeStyle = "#e74c3c";
-            ctx.lineWidth = 1;
-            ctx.setLineDash([4, 4]);
-            ctx.beginPath();
-            ctx.moveTo(xPos, u.bbox.top);
-            ctx.lineTo(xPos, u.bbox.top + u.bbox.height);
-            ctx.stroke();
-            ctx.restore();
-          }
-        }
-      };
-    }
-
-    const now = Date.now();
-
-    // uPlot configuration for time series [web:40][web:48][web:51]
-    const opts = {
-      width: Math.min(900, document.documentElement.clientWidth - 32),
-      height: 360,
-      tzDate: ts => new Date(ts), // times are already local if timezone=auto
-      scales: {
-        x: { time: true },
-        y: { auto: true }
-      },
-      axes: [
-        {
-          stroke: "#333",
-          grid: { show: true, stroke: "rgba(0,0,0,0.06)" },
-          values: (u, vals) => vals.map(v => {
-            const d = new Date(v);
-            return d.toLocaleString(undefined, { month: "short", day: "2-digit", hour: "2-digit" });
-          })
-        },
-        {
-          stroke: "#333",
-          grid: { show: true, stroke: "rgba(0,0,0,0.06)" },
-          label: "hPa",
-          values: (u, vals) => vals.map(v => v.toFixed(0))
-        }
-      ],
-      series: [
-        {},
-        {
-          label: "Pressure (hPa)",
-          stroke: "#2b6cb0",
-          width: 2,
-          fill: "rgba(43,108,176,0.10)",
-          value: (u, sidx, idx) => {
-            const p = y[idx];
-            if (p == null) return "";
-            const t = new Date(x[idx]).toLocaleString();
-            return `${p.toFixed(1)} hPa @ ${t}`;
-          }
-        }
-      ],
-      plugins: [nowLinePlugin(now)]
-    };
-
-    const u = new uPlot(opts, [x, y], document.getElementById("chart"));
-
-    // Resize on window change
-    window.addEventListener("resize", () => {
-      const w = Math.min(900, document.documentElement.clientWidth - 32);
-      u.setSize({ width: w, height: 360 });
-    });
-  })();
-  </script>
-</body>
-</html>
+  });
+  ro.observe(container);
+})();
+</script>
