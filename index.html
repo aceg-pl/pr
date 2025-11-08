@@ -3,7 +3,7 @@
 <link rel="stylesheet" href="https://unpkg.com/uplot@1.6.30/dist/uPlot.min.css">
 <style>
   html,body { margin:0; padding:0; background:#fff; }
-  #c { width: 180px; height: 72px; display:block; } /* fixed tiny container */
+  #c { width: 180px; height: 72px; display:block; }
 </style>
 <div id="c"></div>
 <script src="https://unpkg.com/uplot@1.6.30/dist/uPlot.iife.min.js"></script>
@@ -11,27 +11,31 @@
 (async () => {
   const lat = 53.2220301, lon = 18.0544024;
 
+  // Request hourly pressure (hPa) and precipitation (mm) with past 7d + next 7d, local timezone. [web:16]
   const params = new URLSearchParams({
     latitude: String(lat),
     longitude: String(lon),
-    hourly: "pressure_msl",
+    hourly: "pressure_msl,precipitation",
     past_days: "7",
     forecast_days: "7",
     timezone: "auto"
   });
-  const url = "https://api.open-meteo.com/v1/forecast?" + params.toString(); // no key [web:16]
+  const url = "https://api.open-meteo.com/v1/forecast?" + params.toString(); // No key required. [web:16]
 
   const res = await fetch(url);
   if (!res.ok) { document.getElementById("c").textContent = "Fetch error"; return; }
   const j = await res.json();
 
   const times = j?.hourly?.time || [];
-  const vals  = j?.hourly?.pressure_msl || [];
-  if (!times.length || !vals.length) { document.getElementById("c").textContent = "No data"; return; }
+  const pVals = j?.hourly?.pressure_msl || [];
+  const rVals = j?.hourly?.precipitation || []; // mm/h per hour [web:23][web:29]
+  if (!times.length || !pVals.length || !rVals.length) { document.getElementById("c").textContent = "No data"; return; }
 
-  const x = times.map(t => new Date(t).getTime());     // epoch ms [web:83]
-  const y = vals.map(v => v == null ? null : Number(v));
+  const x = times.map(t => new Date(t).getTime()); // epoch ms for time axis. [web:83]
+  const yP = pVals.map(v => v == null ? null : Number(v));      // hPa
+  const yR = rVals.map(v => v == null ? null : Number(v));      // mm/h
 
+  // Optional “now” marker
   const now = Date.now();
   function nowLine(nowTs){
     return { hooks:{ draw:(u)=>{
@@ -45,46 +49,68 @@
   const container = document.getElementById("c");
   const w = container.clientWidth || 180, h = container.clientHeight || 72;
 
+  // Compute a reasonable right-axis range for precip (often sparse/zeros)
+  const rMin = 0;
+  const rMax = Math.max(1, ...(yR.filter(v => v != null))); // at least 1 mm/h to show scale
+  // Pressure range auto; can clamp if desired.
+
   const u = new uPlot({
     width: w,
     height: h,
-    tzDate: ts => new Date(ts),                      // local time [web:16]
-    scales: { x:{ time:true }, y:{ auto:true } },    // [web:83]
-    padding: [6,4,6,6],                              // keep edge labels in-bounds [web:83]
+    tzDate: ts => new Date(ts),                       // local time. [web:16]
+    padding: [6, 6, 6, 6],
+    scales: {
+      x: { time: true },                               // time axis. [web:83]
+      p: { auto: true },                               // pressure scale (left)
+      r: { range: [rMin, rMax] }                       // precip scale (right)
+    },
     axes: [
+      // X axis: compact tick values, sparse to fit tiny width
       {
         show: true,
-        size: 24,
-        space: 36,                                   // min label spacing [web:85]
+        size: 22,
+        space: 36,                                     // min px between labels. [web:85]
         splits: (u, vals) => {
-          const target = 4;
+          const target = 4;                            // ~4 ticks across 180px. [web:79]
           const step = Math.ceil(vals.length / target) || 1;
           const out = [];
           for (let i = 0; i < vals.length; i += step) out.push(vals[i]);
           return out;
-        },                                           // [web:79]
+        },
         values: (u, vals) => vals.map(v => {
           const d = new Date(v);
-          return `${d.getDate()}-${String(d.getHours()).padStart(2,"0")}`; // e.g., "6-14" [web:89]
+          return `${d.getDate()}-${String(d.getHours()).padStart(2,"0")}`; // "DD-HH" compact. [web:89][web:83]
         }),
         ticks: { show: true },
         grid: { show: false },
         font: "10px system-ui",
         gap: 4
       },
+      // Left Y axis: pressure (hPa)
       {
         show: true,
+        scale: "p",
         size: 36,
         values: (u, vals) => vals.map(v => v.toFixed(0)),
         grid: { show: true, stroke: "rgba(0,0,0,0.06)" }
+      },
+      // Right Y axis: precipitation (mm/h)
+      {
+        show: true,
+        scale: "r",
+        side: 1,                                       // right side axis
+        size: 32,
+        values: (u, vals) => vals.map(v => v.toFixed(1)),
+        grid: { show: false }
       }
     ],
     series: [
-      {},
-      { stroke:"#2b6cb0", width:1, fill:"rgba(43,108,176,0.10)", points:{ show:false } }
+      {}, // x
+      { label:"Pressure", scale:"p", stroke:"#2b6cb0", width:1, fill:"rgba(43,108,176,0.10)", points:{ show:false } }, // [web:83]
+      { label:"Precip",  scale:"r", stroke:"#1f9d55", width:1, points:{ show:false } } // mm/h on right axis
     ],
     plugins: [nowLine(now)]
-  }, [x,y], container);
+  }, [x, yP, yR], container);
 
   const ro = new ResizeObserver(entries => {
     for (const e of entries) {
